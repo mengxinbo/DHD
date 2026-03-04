@@ -122,7 +122,11 @@ def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
     v[:,2] += -v[:,2].min() + min_z + rng.uniform(0.40, 0.45)
     v[:,0] += v[:,2]*x+rng.uniform(-0.15, 0.15)
     v[:,1] += v[:,2]*y+rng.uniform(-0.15, 0.15)
-
+    print(c.shape)
+    if len(c) == 0:
+      n_materials = rng_clr.randint(2, 5)  # 2~4种材质
+      c = rng_clr.randint(0, n_materials, size=v.shape[0])
+    print(c.shape)
     c_idx=rng_clr.randint(ref_len, size=(c.max()+1))#np.full(v.shape[0], )
 
     c = c_idx[c]
@@ -149,8 +153,8 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
 
   x_center=(imsize[1]/2-K[0,2]+shiftcamera)/K[0,0]
   y_center=(imsize[0]/2-K[1,2])/K[1,1]
-
   verts, faces, colors, normals = get_mesh(rng, rng_clr, reflectance.shape[0],x_center,y_center)
+  
   data = renderer.PyRenderInput(verts=verts.copy(), colors=colors.copy(), normals=normals.copy(), faces=faces.copy())
   print(f'loading mesh for sample {idx+1}/{n_samples} took {time.time()-tic}[s]')
 
@@ -193,7 +197,7 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
 
     # render the scene at multiple scales
     scales = [1, 0.5, 0.25, 0.125]
-
+    
     for scale in scales:
       fx = K[0,0] * scale
       fy = K[1,1] * scale
@@ -204,7 +208,7 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       im_width = imsize[1] * scale
       cams.append( renderer.PyCamera(fx,fy,pxcam,py, Rcam, tcam, im_width, im_height) )
       projs.append( renderer.PyCamera(fx,fy,pxpro,py, Rproj, tproj, im_width, im_height) )
-
+    
 
     for s, cam, proj, pattern in zip(itertools.count(), cams, projs, patterns):
       fl = K[0,0] / (2**s)
@@ -213,7 +217,7 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       shader = renderer.PyShader(0,1.5,0.0,10)
       pyrenderer = renderer.PyRenderer(cam, shader, wavelength=wavelength, engine='gpu')
       pyrenderer.mesh_proj(data, proj, pattern, reflectance, camerasensitivity, illumination, d_alpha=0, d_beta=0.35)
-
+      print("xinbo2")
       # get the reflected laser pattern $R$
       im = pyrenderer.color().copy()
       refimg = pyrenderer.reflectance().copy()
@@ -236,7 +240,7 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       mindisp = min(mindisp,dmin)
       ret[f'disp{s}'].append(disp[None].astype(np.float32))
       print(f'Disp Min: {dmin}; Disp Max: {dmax}. Whole Min: {mindisp}; Whole Max: {maxdisp}')
-
+  
   for key in ret.keys():
     ret[key] = np.stack(ret[key], axis=0)
 
@@ -261,7 +265,7 @@ if __name__=='__main__':
   np.random.seed(42)
   
   # output directory
-  with open('../para/config.json') as fp:
+  with open('./para/config.json') as fp:
    config = json.load(fp)
    data_root = Path(config['DATA_ROOT'])
    shapenet_root = config['SHAPENET_ROOT']
@@ -272,13 +276,14 @@ if __name__=='__main__':
 
   # load shapenet models 
   # obj_classes = ['chair','car']
-  obj_classes = ['airplane','watercraft','camera']
+  # obj_classes = ['airplane','watercraft','camera']
+  obj_classes = ['chair']
   objs = get_objs(shapenet_root, obj_classes)
   
   # camera parameters
   imsize = (480, 640)
   imsizes = [(imsize[0]//(2**s), imsize[1]//(2**s)) for s in range(4)]
-  with open(str('../para/campara.pkl'), 'rb') as f:
+  with open(str('./para/campara.pkl'), 'rb') as f:
       campara = pickle.load(f)
   K = campara['K']
   baseline = campara['baseline']
@@ -294,19 +299,19 @@ if __name__=='__main__':
   track_length = 1#4
   
   # load pattern image
-  pattern_path = '../para/pattern_croped.png'
+  pattern_path = './para/pattern_croped.png'
   pattern_crop = True
   patterns = get_patterns(pattern_path, imsizes, pattern_crop)
 
   # load reflectance
-  reflectance = np.loadtxt('../para/reflectance.txt', dtype=np.float32, delimiter=',')
+  reflectance = np.loadtxt('./para/reflectance.txt', dtype=np.float32, delimiter=',')
   wavelength = reflectance.shape[1]
 
   # load camera sensitivity
-  camerasensitivity = np.loadtxt('../para/camerasensitivity.txt', dtype=np.float32, delimiter=',')
+  camerasensitivity = np.loadtxt('./para/camerasensitivity.txt', dtype=np.float32, delimiter=',')
 
   # load illumination
-  illumination = np.loadtxt('../para/illumination.txt', dtype=np.float32, delimiter=',')
+  illumination = np.loadtxt('./para/illumination.txt', dtype=np.float32, delimiter=',')
 
   patterns_illu=[]
   for index, value in enumerate(patterns):

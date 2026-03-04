@@ -1,6 +1,5 @@
 {
-"CUDA_LIBRARY_DIR": "/usr/local/cuda/lib64",
-"DATA_ROOT": "/PATH/TO/OUTPUT/DIR",
-"SHAPENET_ROOT": "/PATH/TO/SHAPENET"
+  "CUDA_LIBRARY_DIR": "/usr/local/cuda-11.8/lib64",
+  "DATA_ROOT": "/home/xinbo/Desktop/dataDHD/",
+  "SHAPENET_ROOT": "/home/xinbo/Desktop/minidataset"
 }
-

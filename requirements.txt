@@ -2,5 +2,5 @@ cython
 matplotlib
 pandas
 scipy
-conda-forge opencv
+opencv
 

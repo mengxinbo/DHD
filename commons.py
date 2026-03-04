@@ -1,78 +1,109 @@
+import co
 import numpy as np
 import cv2
 
 
-def get_patterns(pattern_path, imsizes, pattern_crop=False):
-  """Load a structured-light pattern image and resize it to multiple scales.
-
-  Parameters
-  ----------
-  pattern_path : str or Path
-      Path to the pattern PNG image.
-  imsizes : list of (int, int)
-      List of (height, width) tuples for the desired output sizes.
-  pattern_crop : bool
-      Unused flag kept for API compatibility. The cropping is assumed to have
-      been applied to the source image already.
-
-  Returns
-  -------
-  list of numpy.ndarray
-      One uint8 array of shape (H, W, C) per entry in *imsizes*.
-  """
-  pattern = cv2.imread(str(pattern_path))
-  if pattern is None:
-    raise ValueError(f'Could not load pattern image from {pattern_path}')
-  pattern = cv2.cvtColor(pattern, cv2.COLOR_BGR2RGB)
-
+def get_patterns(path='syn', imsizes=[], crop=True):
+  pattern_size = imsizes[0]
+  if path == 'syn':
+    np.random.seed(42)
+    pattern = np.random.uniform(0,1, size=pattern_size)
+    pattern = (pattern < 0.1).astype(np.uint8) * 255
+    pattern.reshape(*imsizes[0])
+  else:
+    pattern = cv2.imread(path)
+    pattern = pattern.astype(np.uint8)
+   
+  if pattern.ndim == 2:
+    pattern = np.stack([pattern for idx in range(3)], axis=2)
+  
+  if crop and pattern.shape[0] > pattern_size[0] and pattern.shape[1] > pattern_size[1]:
+    r0 = (pattern.shape[0] - pattern_size[0]) // 2
+    c0 = (pattern.shape[1] - pattern_size[1]) // 2
+    pattern = pattern[r0:r0+imsizes[0][0], c0:c0+imsizes[0][1]] 
+    
   patterns = []
-  for height, width in imsizes:
-    resized = cv2.resize(pattern, (width, height), interpolation=cv2.INTER_AREA)
-    patterns.append(resized.astype(np.uint8))
+  for imsize in imsizes:
+    pat = cv2.resize(pattern, (imsize[1],imsize[0]), interpolation=cv2.INTER_LINEAR)
+    patterns.append(pat.astype(np.uint8))
+
   return patterns
 
+def get_rotation_matrix(v0, v1):
+  v0 = v0/np.linalg.norm(v0)
+  v1 = v1/np.linalg.norm(v1)
+  v = np.cross(v0,v1)
+  c = np.dot(v0,v1)
+  s = np.linalg.norm(v)
+  I = np.eye(3)
+  vXStr = '{} {} {}; {} {} {}; {} {} {}'.format(0, -v[2], v[1], v[2], 0, -v[0], -v[1], v[0], 0)
+  k = np.matrix(vXStr)
+  r = I + k + k @ k * ((1 -c)/(s**2))
+  return np.asarray(r.astype(np.float32))
 
-def get_rotation_matrix(a, b):
-  """Return the rotation matrix that rotates unit vector *a* onto unit vector *b*.
 
-  Uses the axis-angle (Rodrigues) formula.
+def augment_image(img,rng,disp=None,grad=None,max_shift=64,max_blur=1.5,max_noise=10.0,max_sp_noise=0.001):
 
-  Parameters
-  ----------
-  a, b : array_like, shape (3,)
-      Source and target direction vectors (need not be normalised).
+    # get min/max values of image
+    min_val = np.min(img)
+    max_val = np.max(img)
+    
+    # init augmented image
+    img_aug = img
+    
+    # init disparity correction map
+    disp_aug = disp
+    grad_aug = grad
 
-  Returns
-  -------
-  numpy.ndarray, shape (3, 3), dtype float32
-  """
-  a = np.asarray(a, dtype=np.float32)
-  b = np.asarray(b, dtype=np.float32)
-  a = a / np.linalg.norm(a)
-  b = b / np.linalg.norm(b)
+    # apply affine transformation
+    if max_shift>1:
+        
+        # affine parameters
+        rows,cols = img.shape
+        shear = 0
+        shift = 0
+        shear_correction = 0
+        if rng.uniform(0,1)<0.75: shear = rng.uniform(-max_shift,max_shift) # shear with 75% probability
+        else:                     shift = rng.uniform(0,max_shift)          # shift with 25% probability
+        if shear<0:               shear_correction = -shear
+        
+        # affine transformation
+        a = shear/float(rows)
+        b = shift+shear_correction
+        
+        # warp image
+        T = np.float32([[1,a,b],[0,1,0]])                
+        img_aug = cv2.warpAffine(img_aug,T,(cols,rows))
+        if grad is not None:
+          grad_aug = cv2.warpAffine(grad,T,(cols,rows))
+        
+        # disparity correction map
+        col = a*np.array(range(rows))+b
+        disp_delta = np.tile(col,(cols,1)).transpose()
+        if disp is not None:
+          disp_aug = cv2.warpAffine(disp+disp_delta,T,(cols,rows))
 
-  v = np.cross(a, b)
-  c = float(np.dot(a, b))
-  s = float(np.linalg.norm(v))
+    # gaussian smoothing
+    if rng.uniform(0,1)<0.5:
+        img_aug = cv2.GaussianBlur(img_aug,(5,5),rng.uniform(0.2,max_blur))
+        
+    # per-pixel gaussian noise
+    img_aug = img_aug + rng.randn(*img_aug.shape)*rng.uniform(0.0,max_noise)/255.0
 
-  if s < 1e-10:
-    if c > 0:
-      # vectors are already aligned
-      return np.eye(3, dtype=np.float32)
-    else:
-      # vectors are anti-parallel: rotate 180 degrees around an arbitrary perpendicular axis
-      perp = np.array([1, 0, 0], dtype=np.float32)
-      if abs(np.dot(a, perp)) > 0.9:
-        perp = np.array([0, 1, 0], dtype=np.float32)
-      axis = np.cross(a, perp)
-      axis = axis / np.linalg.norm(axis)
-      vx = np.array([[ 0,       -axis[2],  axis[1]],
-                     [ axis[2],  0,       -axis[0]],
-                     [-axis[1],  axis[0],  0      ]], dtype=np.float32)
-      return (np.eye(3, dtype=np.float32) + 2.0 * (vx @ vx)).astype(np.float32)
-
-  vx = np.array([[ 0,    -v[2],  v[1]],
-                 [ v[2],  0,    -v[0]],
-                 [-v[1],  v[0],  0   ]], dtype=np.float32)
-  R = np.eye(3, dtype=np.float32) + vx + (vx @ vx) * ((1.0 - c) / (s * s))
-  return R.astype(np.float32)
+    # salt-and-pepper noise
+    if rng.uniform(0,1)<0.5:
+        ratio=rng.uniform(0.0,max_sp_noise)
+        img_shape = img_aug.shape
+        img_aug = img_aug.flatten()
+        coord = rng.choice(np.size(img_aug), int(np.size(img_aug)*ratio))
+        img_aug[coord] = max_val
+        coord = rng.choice(np.size(img_aug), int(np.size(img_aug)*ratio))
+        img_aug[coord] = min_val
+        img_aug = np.reshape(img_aug, img_shape)
+        
+    # clip intensities back to [0,1]
+    img_aug = np.maximum(img_aug,0.0)
+    img_aug = np.minimum(img_aug,1.0)
+    
+    # return image
+    return img_aug, disp_aug, grad_aug

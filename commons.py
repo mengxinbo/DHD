@@ -8,11 +8,11 @@ def get_patterns(path='syn', imsizes=[], crop=True):
   if path == 'syn':
     np.random.seed(42)
     pattern = np.random.uniform(0,1, size=pattern_size)
-    pattern = (pattern < 0.1).astype(np.float32)
+    pattern = (pattern < 0.1).astype(np.uint8)
     pattern.reshape(*imsizes[0])
   else:
     pattern = cv2.imread(path)
-    pattern = pattern.astype(np.float32)
+    #pattern = pattern.astype(np.float32)
     pattern /= 255
    
   if pattern.ndim == 2:
@@ -26,6 +26,7 @@ def get_patterns(path='syn', imsizes=[], crop=True):
   patterns = []
   for imsize in imsizes:
     pat = cv2.resize(pattern, (imsize[1],imsize[0]), interpolation=cv2.INTER_LINEAR)
+    pat = pat.astype(np.uint8)  # 确保 resize 后仍为 uint8
     patterns.append(pat)
 
   return patterns

@@ -102,7 +102,8 @@ def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
   v[:,2] += -v[:,2].min() + rng.uniform(0.53,0.58)
   v[:,:2] *= 5e2
   v[:,2] = np.mean(v[:,2]) + (v[:,2] - np.mean(v[:,2])) * 5e2
-  c = np.full(v.shape[0], rng_clr.randint(0, ref_len))
+  # ===== 改为 per-face: 用 f.shape[0] 而不是 v.shape[0] =====
+  c = np.full(f.shape[0], rng_clr.randint(0, ref_len))
   verts.append(v)
   faces.append(f)
   normals.append(n)
@@ -125,12 +126,14 @@ def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
     print(c.shape)
     if len(c) == 0:
       n_materials = rng_clr.randint(2, 5)  # 2~4种材质
-      c = rng_clr.randint(0, n_materials, size=v.shape[0])
+      c = rng_clr.randint(0, n_materials, size=f.shape[0])
     print(c.shape)
     c_idx=rng_clr.randint(ref_len, size=(c.max()+1))#np.full(v.shape[0], )
 
     c = c_idx[c]
-
+    # ===== 核心修复：per-vertex 转 per-face =====
+    if len(c) == v.shape[0]:
+      c = c[f[:, 0]]  # 取每个面第0个顶点的材质索引，长度变为 f.shape[0]
     verts.append(v.astype(np.float32))
     faces.append(f)
     normals.append(n)
@@ -216,6 +219,41 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       shiftpatterns=shiftpattern/ (2**s)
       shader = renderer.PyShader(0,1.5,0.0,10)
       pyrenderer = renderer.PyRenderer(cam, shader, wavelength=wavelength, engine='gpu')
+      
+       # ==================== 调试日志 开始 ====================
+      print("=" * 60)
+      print(f"[DEBUG] scale index: {s}")
+      print(f"[DEBUG] pattern shape: {pattern.shape}, dtype: {pattern.dtype}")
+      print(f"[DEBUG] reflectance shape: {reflectance.shape}, dtype: {reflectance.dtype}")
+      print(f"[DEBUG] camerasensitivity shape: {camerasensitivity.shape}, dtype: {camerasensitivity.dtype}")
+      print(f"[DEBUG] illumination shape: {illumination.shape}, dtype: {illumination.dtype}")
+      
+      # 检查 colors 数组 (最关键)
+      print(f"[DEBUG] colors shape: {colors.shape}, dtype: {colors.dtype}")
+      print(f"[DEBUG] colors min: {colors.min()}, colors max: {colors.max()}")
+      print(f"[DEBUG] reflectance 行数 (ref_len): {reflectance.shape[0]}")
+      if colors.max() >= reflectance.shape[0]:
+          print(f"[ERROR] colors 越界! colors.max()={colors.max()} >= reflectance行数={reflectance.shape[0]}")
+      
+      # 检查 colors 长度 vs verts数 vs faces数
+      print(f"[DEBUG] verts shape: {verts.shape}")
+      print(f"[DEBUG] faces shape: {faces.shape}")
+      print(f"[DEBUG] normals shape: {normals.shape}")
+      print(f"[DEBUG] len(colors)={len(colors)}, n_verts={verts.shape[0]}, n_faces={faces.shape[0]}")
+      if len(colors) == verts.shape[0]:
+          print(f"[WARN] colors 是 per-vertex 的, 但 CUDA kernel 用 colors[face_idx] 按 face 索引!")
+          print(f"[WARN] 如果 n_faces({faces.shape[0]}) > len(colors)({len(colors)}), 将越界!")
+      if len(colors) < faces.shape[0]:
+          print(f"[ERROR] colors长度({len(colors)}) < faces数({faces.shape[0]}), 一定会越界!")
+      
+      # 检查 faces 索引是否在 verts 范围内
+      print(f"[DEBUG] faces min: {faces.min()}, faces max: {faces.max()}")
+      if faces.max() >= verts.shape[0]:
+          print(f"[ERROR] faces 索引越界! faces.max()={faces.max()} >= n_verts={verts.shape[0]}")
+      
+      print("=" * 60)
+      # ==================== 调试日志 结束 ====================
+      
       pyrenderer.mesh_proj(data, proj, pattern, reflectance, camerasensitivity, illumination, d_alpha=0, d_beta=0.35)
       print("xinbo2")
       # get the reflected laser pattern $R$

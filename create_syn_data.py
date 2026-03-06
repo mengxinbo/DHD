@@ -167,6 +167,9 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
   center = np.array([0,0,0.4], dtype=np.float32)
 
   basevec =  np.array([-baseline,0,0], dtype=np.float32)
+  # basevec encodes the projector-to-camera baseline offset in world space:
+  #   t_proj = t_cam + [-baseline, 0, 0]
+  # i.e. the projector is located  `baseline` units to the *left* of the camera.
   unit = np.array([0,0,1],dtype=np.float32)
 
   cam_x_ = rng.uniform(-0.05,0.05)
@@ -205,6 +208,10 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
     for scale in scales:
       fx = K[0,0] * scale
       fy = K[1,1] * scale
+      # Apply principal-point shifts (scaled with image resolution):
+      #   px_cam  = (K[0,2] - shiftcamera)  * scale
+      #   px_proj = (K[0,2] - shiftpattern) * scale
+      # This replicates the physical shift-lens geometry for both devices.
       pxcam = (K[0,2]-shiftcamera) * scale
       pxpro = (K[0,2]-shiftpattern) * scale
       py = K[1,2] * scale
@@ -261,6 +268,16 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       im = pyrenderer.color().copy()
       refimg = pyrenderer.reflectance().copy()
       depth = pyrenderer.depth().copy()
+      # Disparity formula:
+      #   disp = baseline * fl / depth  -  shiftcameras  +  shiftpatterns
+      # where shiftcameras = shiftcamera / (2**s)  and  shiftpatterns = shiftpattern / (2**s)
+      # are the scale-adjusted principal-point offsets for this resolution level.
+      # Derivation: for a surface point at depth Z in the camera frame,
+      #   u_cam  = fx * X/Z + px_cam
+      #   u_proj = fx * (X - baseline)/Z + px_proj   (projector is -baseline along X)
+      #   disp = u_cam - u_proj
+      #        = fx * baseline / Z  +  px_cam  -  px_proj
+      #        = baseline * fl / depth  -  shiftcameras  +  shiftpatterns
       disp = baseline * fl / depth - shiftcameras + shiftpatterns
       mask = depth > 0
 
@@ -325,6 +342,55 @@ if __name__=='__main__':
   with open(str('./para/campara.pkl'), 'rb') as f:
       campara = pickle.load(f)
   K = campara['K']
+
+  # -----------------------------------------------------------------------
+  # Camera-Projector Parameter Definitions
+  # -----------------------------------------------------------------------
+  # baseline     : horizontal distance (in scene units, e.g. metres) between
+  #                the camera optical centre and the projector optical centre.
+  #                The projector is placed at  t_proj = t_cam + [-baseline, 0, 0],
+  #                i.e. shifted by  -baseline  along the world X-axis.
+  #
+  # shiftcamera  : horizontal (x-axis) principal-point offset of the *camera*.
+  #                The effective camera principal point used during rendering is
+  #                    px_cam = K[0,2] - shiftcamera
+  #                This models a "shift-lens" or off-centre sensor setup where
+  #                the optical axis does not pass through the image centre.
+  #
+  # shiftpattern : horizontal (x-axis) principal-point offset of the *projector*.
+  #                The effective projector principal point used during rendering is
+  #                    px_proj = K[0,2] - shiftpattern
+  #                Analogous to shiftcamera but for the illumination device.
+  #
+  # Camera-Projector Geometric Model
+  # ---------------------------------
+  # Both devices share the same rotation R and intrinsic focal lengths (fx, fy).
+  # Only their translation vectors and principal-point x-coordinates differ:
+  #
+  #   Camera   : t_cam  = [cam_x, cam_y, cam_z]
+  #              K_cam  = [[fx,  0, K[0,2]-shiftcamera ],
+  #                        [ 0, fy, K[1,2]             ],
+  #                        [ 0,  0, 1                  ]]
+  #
+  #   Projector: t_proj = t_cam + [-baseline, 0, 0]
+  #              K_proj = [[fx,  0, K[0,2]-shiftpattern],
+  #                        [ 0, fy, K[1,2]             ],
+  #                        [ 0,  0, 1                  ]]
+  #
+  # Disparity Formula (camera pixel u_cam  →  projected pixel u_proj)
+  # ------------------------------------------------------------------
+  # For a surface point P at depth Z (Z-coordinate in the camera frame):
+  #
+  #   disp = u_cam - u_proj
+  #        = baseline * fx / Z  +  shiftpattern  -  shiftcamera
+  #
+  # Equivalently (as used in the code below):
+  #   disp = baseline * fl / depth  -  shiftcamera  +  shiftpattern
+  #
+  # where fl = fx at the current scale.
+  # When shiftcamera = shiftpattern = 0 this reduces to the classical
+  # stereo disparity  d = f * B / Z.
+  # -----------------------------------------------------------------------
   baseline = campara['baseline']
   shiftcamera= campara['shiftcamera']
   shiftpattern= campara['shiftpattern']

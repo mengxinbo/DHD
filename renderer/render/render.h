@@ -302,6 +302,38 @@ inline void interpolate_linear3(const unsigned char* im, T x, T y, int height, i
 //printf("%d b:%f\n",index, out_color[0]);
 }
 
+// ---------------------------------------------------------------------------
+// RenderProjectorFunctor  –  spectral structured-light rendering
+// ---------------------------------------------------------------------------
+// Rendering formula for one camera pixel (channel c):
+//
+//   I_c = shading(θ) / r²  ×  Σ_{e=0}^{2}  Σ_λ  p_e(u,v) · ρ(λ) · E_e(λ) · s_c(λ)
+//
+// where
+//   I_c         : rendered intensity for camera channel c  (R=0, G=1, B=2)
+//   shading(θ)  : Phong shading term – a function of surface normal, view
+//                 direction and light (projector) direction (see Shader struct)
+//   r           : Euclidean distance from the projector centre to the surface
+//                 point (inverse-square distance attenuation)
+//   p_e(u,v)    : bilinearly-interpolated value of pattern channel e at the
+//                 projected UV coordinate (u,v) on the projector image plane;
+//                 normalised to [0, 1]  (i.e. pattern[...] / 255)
+//   ρ(λ)        : spectral reflectance of the surface material at wavelength λ
+//                 (loaded from reflectance.txt; per-material, per-wavelength)
+//   E_e(λ)      : spectral power distribution of the projector's illuminant for
+//                 colour channel e  (loaded from illumination.txt)
+//   s_c(λ)      : spectral sensitivity of camera channel c at wavelength λ
+//                 (loaded from camerasensitivity.txt)
+//
+// The inner sum over wavelengths λ is computed by vec_dot_3in(), accumulating
+// the triple product  ρ(λ) · E_e(λ) · s_c(λ)  across the full spectrum.
+// The outer sum over projector colour channels e ∈ {0,1,2} integrates the
+// contribution from each LED/spectral band of the structured-light projector.
+//
+// Ambient (pattern-free) image for channel c:
+//   A_c = shading(θ)  ×  Σ_λ  ρ(λ) · s_c(λ)
+// (stored in buffer.normal; computed before the projector visibility check)
+// ---------------------------------------------------------------------------
 template <typename T>
 struct RenderProjectorFunctor : public RenderFunctor<T> {
   const RenderInput<T> input;

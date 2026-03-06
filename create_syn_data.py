@@ -40,6 +40,7 @@ def get_objs(shapenet_dir, obj_classes, num_perclass=100):
       f = np.load(obj_path.parent / "extractedf.npy")
       c = np.load(obj_path.parent / "extractedc.npy")
       n = np.load(obj_path.parent / "extractedn.npy")
+      
     else:
       print(f'load {obj_path}')
       v, f, c, n = co.io3d.read_obj(obj_path)
@@ -123,11 +124,11 @@ def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
     v[:,2] += -v[:,2].min() + min_z + rng.uniform(0.40, 0.45)
     v[:,0] += v[:,2]*x+rng.uniform(-0.15, 0.15)
     v[:,1] += v[:,2]*y+rng.uniform(-0.15, 0.15)
-    print(c.shape)
+    #print(c.shape)
     if len(c) == 0:
       n_materials = rng_clr.randint(2, 5)  # 2~4种材质
       c = rng_clr.randint(0, n_materials, size=f.shape[0])
-    print(c.shape)
+    #print(c.shape)
     c_idx=rng_clr.randint(ref_len, size=(c.max()+1))#np.full(v.shape[0], )
 
     c = c_idx[c]
@@ -221,37 +222,37 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       pyrenderer = renderer.PyRenderer(cam, shader, wavelength=wavelength, engine='gpu')
       
        # ==================== 调试日志 开始 ====================
-      print("=" * 60)
-      print(f"[DEBUG] scale index: {s}")
-      print(f"[DEBUG] pattern shape: {pattern.shape}, dtype: {pattern.dtype}")
-      print(f"[DEBUG] reflectance shape: {reflectance.shape}, dtype: {reflectance.dtype}")
-      print(f"[DEBUG] camerasensitivity shape: {camerasensitivity.shape}, dtype: {camerasensitivity.dtype}")
-      print(f"[DEBUG] illumination shape: {illumination.shape}, dtype: {illumination.dtype}")
+      #print("=" * 60)
+      #print(f"[DEBUG] scale index: {s}")
+      #print(f"[DEBUG] pattern shape: {pattern.shape}, dtype: {pattern.dtype}")
+      #print(f"[DEBUG] reflectance shape: {reflectance.shape}, dtype: {reflectance.dtype}")
+      #print(f"[DEBUG] camerasensitivity shape: {camerasensitivity.shape}, dtype: {camerasensitivity.dtype}")
+      #print(f"[DEBUG] illumination shape: {illumination.shape}, dtype: {illumination.dtype}")
       
       # 检查 colors 数组 (最关键)
-      print(f"[DEBUG] colors shape: {colors.shape}, dtype: {colors.dtype}")
-      print(f"[DEBUG] colors min: {colors.min()}, colors max: {colors.max()}")
-      print(f"[DEBUG] reflectance 行数 (ref_len): {reflectance.shape[0]}")
-      if colors.max() >= reflectance.shape[0]:
-          print(f"[ERROR] colors 越界! colors.max()={colors.max()} >= reflectance行数={reflectance.shape[0]}")
+      #print(f"[DEBUG] colors shape: {colors.shape}, dtype: {colors.dtype}")
+      #print(f"[DEBUG] colors min: {colors.min()}, colors max: {colors.max()}")
+      #print(f"[DEBUG] reflectance 行数 (ref_len): {reflectance.shape[0]}")
+      #if colors.max() >= reflectance.shape[0]:
+          #print(f"[ERROR] colors 越界! colors.max()={colors.max()} >= reflectance行数={reflectance.shape[0]}")
       
       # 检查 colors 长度 vs verts数 vs faces数
-      print(f"[DEBUG] verts shape: {verts.shape}")
-      print(f"[DEBUG] faces shape: {faces.shape}")
-      print(f"[DEBUG] normals shape: {normals.shape}")
-      print(f"[DEBUG] len(colors)={len(colors)}, n_verts={verts.shape[0]}, n_faces={faces.shape[0]}")
-      if len(colors) == verts.shape[0]:
-          print(f"[WARN] colors 是 per-vertex 的, 但 CUDA kernel 用 colors[face_idx] 按 face 索引!")
-          print(f"[WARN] 如果 n_faces({faces.shape[0]}) > len(colors)({len(colors)}), 将越界!")
-      if len(colors) < faces.shape[0]:
-          print(f"[ERROR] colors长度({len(colors)}) < faces数({faces.shape[0]}), 一定会越界!")
+      #print(f"[DEBUG] verts shape: {verts.shape}")
+      #print(f"[DEBUG] faces shape: {faces.shape}")
+      #print(f"[DEBUG] normals shape: {normals.shape}")
+      #print(f"[DEBUG] len(colors)={len(colors)}, n_verts={verts.shape[0]}, n_faces={faces.shape[0]}")
+      #if len(colors) == verts.shape[0]:
+          #print(f"[WARN] colors 是 per-vertex 的, 但 CUDA kernel 用 colors[face_idx] 按 face 索引!")
+          #print(f"[WARN] 如果 n_faces({faces.shape[0]}) > len(colors)({len(colors)}), 将越界!")
+      #if len(colors) < faces.shape[0]:
+          #print(f"[ERROR] colors长度({len(colors)}) < faces数({faces.shape[0]}), 一定会越界!")
       
       # 检查 faces 索引是否在 verts 范围内
-      print(f"[DEBUG] faces min: {faces.min()}, faces max: {faces.max()}")
-      if faces.max() >= verts.shape[0]:
-          print(f"[ERROR] faces 索引越界! faces.max()={faces.max()} >= n_verts={verts.shape[0]}")
+      #print(f"[DEBUG] faces min: {faces.min()}, faces max: {faces.max()}")
+      #if faces.max() >= verts.shape[0]:
+          #print(f"[ERROR] faces 索引越界! faces.max()={faces.max()} >= n_verts={verts.shape[0]}")
       
-      print("=" * 60)
+      #print("=" * 60)
       # ==================== 调试日志 结束 ====================
       
       pyrenderer.mesh_proj(data, proj, pattern, reflectance, camerasensitivity, illumination, d_alpha=0, d_beta=0.35)
@@ -310,12 +311,12 @@ if __name__=='__main__':
   
   data_type = 'syn'
   out_root = data_root / f'{data_type}'
-  out_root.mkdir(parents=True, exist_ok=True)
+  out_root.mkdir(parents=True, exist_ok=True)#parents=True 表示如果父级目录不存在，则自动递归创建整个路径链,exist_ok=True 表示如果目标目录已经存在，不报错
 
   # load shapenet models 
   # obj_classes = ['chair','car']
-  # obj_classes = ['airplane','watercraft','camera']
-  obj_classes = ['chair']
+  obj_classes = ['airplane','watercraft','camera']
+  # obj_classes = ['chair']
   objs = get_objs(shapenet_root, obj_classes)
   
   # camera parameters
@@ -328,7 +329,7 @@ if __name__=='__main__':
   shiftcamera= campara['shiftcamera']
   shiftpattern= campara['shiftpattern']
   print(K)
-
+  
   focal_lengths = [K[0,0]/(2**s) for s in range(4)]
   blend_im = 0.6
   noise = 0
@@ -377,8 +378,12 @@ if __name__=='__main__':
   mindisp=sys.float_info.max
 
   # start the job
-  n_samples = 2**10 + 2**13
+  n_samples = 2**8 
   #n_samples = 2**8# + 2**13
   for idx in range(n_samples):
+    print(f"-----------------")
+    print(f"进度: {idx + 1}/{n_samples}")
     args = (out_root, idx, n_samples, imsize, patterns, reflectance, camerasensitivity, illumination, wavelength, K, shiftcamera, shiftpattern, baseline, blend_im, noise, maxdisp, mindisp, track_length)
     maxdisp, mindisp = create_data(*args)
+    
+    

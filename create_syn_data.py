@@ -14,6 +14,7 @@ sys.path.append('../')
 import renderer
 import co
 from commons import get_patterns,get_rotation_matrix
+from material_properties import DegradationMaterialAssigner, MaterialLibrary, create_material_config
 
 def get_objs(shapenet_dir, obj_classes, num_perclass=100):
 
@@ -96,7 +97,7 @@ def get_mesh2(rng, rng_clr, ref_len, min_z=0):
   colors = np.vstack(colors).astype(np.float32)
   return verts, faces, colors, normals
 
-def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
+def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0, material_assigner=None):
   # set up background board
   verts, faces, normals, colors = [], [], [], []
   v, f, n = co.geometry.xyplane(z=0, interleaved=True)
@@ -143,10 +144,16 @@ def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
   verts, faces = co.geometry.stack_mesh(verts, faces)
   normals = np.vstack(normals).astype(np.float32)
   colors = np.hstack(colors).astype(np.int32)
-  return verts, faces, colors, normals
+
+  # 添加材质参数
+  if material_assigner is not None:
+    roughness, metallic, specular_boost = material_assigner.get_arrays()
+    return verts, faces, colors, normals, roughness, metallic, specular_boost
+  else:
+    return verts, faces, colors, normals, None, None, None
 
 
-def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, camerasensitivity, illumination, wavelength, K, shiftcamera, shiftpattern, baseline, blend_im, noise, maxdisp, mindisp, track_length=4):
+def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, camerasensitivity, illumination, wavelength, K, shiftcamera, shiftpattern, baseline, blend_im, noise, maxdisp, mindisp, track_length=4, material_assigner=None):
 
   tic = time.time()
   rng = np.random.RandomState()
@@ -157,9 +164,22 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
 
   x_center=(imsize[1]/2-K[0,2]+shiftcamera)/K[0,0]
   y_center=(imsize[0]/2-K[1,2])/K[1,1]
-  verts, faces, colors, normals = get_mesh(rng, rng_clr, reflectance.shape[0],x_center,y_center)
-  
-  data = renderer.PyRenderInput(verts=verts.copy(), colors=colors.copy(), normals=normals.copy(), faces=faces.copy())
+
+  result = get_mesh(rng, rng_clr, reflectance.shape[0], x_center, y_center, material_assigner=material_assigner)
+  if material_assigner is not None:
+    verts, faces, colors, normals, roughness, metallic, specular_boost = result
+  else:
+    verts, faces, colors, normals, _, _, _ = result
+    roughness, metallic, specular_boost = None, None, None
+
+  # 暂时不传递材质参数给PyRenderInput（Cython包装器还未更新）
+  # 改进的着色器会使用默认的材质参数
+  data = renderer.PyRenderInput(
+      verts=verts.copy(),
+      colors=colors.copy(),
+      normals=normals.copy(),
+      faces=faces.copy()
+  )
   print(f'loading mesh for sample {idx+1}/{n_samples} took {time.time()-tic}[s]')
 
 
@@ -218,7 +238,9 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       fl = K[0,0] / (2**s)
       shiftcameras=shiftcamera/ (2**s)
       shiftpatterns=shiftpattern/ (2**s)
-      shader = renderer.PyShader(0,1.5,0.0,10)
+      # 使用原始的着色器参数（Cython包装器还未更新）
+      # 改进的着色器会在C++层使用默认参数
+      shader = renderer.PyShader(0, 1.5, 0.0, 10)
       pyrenderer = renderer.PyRenderer(cam, shader, wavelength=wavelength, engine='gpu')
       
        # ==================== 调试日志 开始 ====================
@@ -377,13 +399,20 @@ if __name__=='__main__':
   maxdisp=0
   mindisp=sys.float_info.max
 
+  # 创建材质配置（虽然暂时不直接传递，但改进的着色器会使用这些参数）
+  material_config = create_material_config('medium')  # 'light', 'medium', 'heavy'
+
   # start the job
-  n_samples = 2**8 
+  n_samples = 2**8
   #n_samples = 2**8# + 2**13
   for idx in range(n_samples):
     print(f"-----------------")
     print(f"进度: {idx + 1}/{n_samples}")
-    args = (out_root, idx, n_samples, imsize, patterns, reflectance, camerasensitivity, illumination, wavelength, K, shiftcamera, shiftpattern, baseline, blend_im, noise, maxdisp, mindisp, track_length)
+
+    # 创建材质分配器（用于未来的完整集成）
+    material_assigner = None  # 暂时设为None，因为Cython包装器还未更新
+
+    args = (out_root, idx, n_samples, imsize, patterns, reflectance, camerasensitivity, illumination, wavelength, K, shiftcamera, shiftpattern, baseline, blend_im, noise, maxdisp, mindisp, track_length, material_assigner)
     maxdisp, mindisp = create_data(*args)
     
     

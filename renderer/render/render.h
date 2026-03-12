@@ -8,6 +8,7 @@
 #include "co_types.h"
 #include "common.h"
 #include "geometry.h"
+#include "advanced_shading.h"
 
 
 template <typename T>
@@ -91,7 +92,13 @@ struct RenderInput {
   int* faces;
   int n_faces;
 
-  RenderInput() : verts(nullptr), colors(nullptr), normals(nullptr), n_verts(0), faces(nullptr), n_faces(0) {}
+  // 材质参数 (per-face)
+  T* roughness;      // 表面粗糙度 (0-1)
+  T* metallic;       // 金属度 (0-1)
+  T* specular_boost; // 高反强度倍数
+
+  RenderInput() : verts(nullptr), colors(nullptr), normals(nullptr), n_verts(0), faces(nullptr), n_faces(0),
+                  roughness(nullptr), metallic(nullptr), specular_boost(nullptr) {}
 };
 
 template <typename T>
@@ -111,7 +118,15 @@ struct Shader {
   const T ks;
   const T alpha;
 
-  Shader(T ka, T kd, T ks, T alpha) : ka(ka), kd(kd), ks(ks), alpha(alpha) {}
+  // 改进的着色参数
+  const bool use_pbr;           // 是否使用PBR着色
+  const T default_roughness;    // 默认粗糙度
+  const T default_metallic;     // 默认金属度
+  const T specular_intensity;   // 高反强度
+
+  Shader(T ka, T kd, T ks, T alpha, bool use_pbr = false, T roughness = 0.5f, T metallic = 0.0f, T spec_intensity = 1.0f)
+    : ka(ka), kd(kd), ks(ks), alpha(alpha), use_pbr(use_pbr),
+      default_roughness(roughness), default_metallic(metallic), specular_intensity(spec_intensity) {}
 
   CPU_GPU_FUNCTION
   T operator()(const T* orig, const T* sp, const T* lp, const T* norm) const {
@@ -391,10 +406,41 @@ struct RenderProjectorFunctor : public RenderFunctor<T> {
       vec_sub(pt, proj_orig, proj_dir);
       vec_div_scalar(proj_dir, proj_dir[2], proj_dir);
 
-      // calculate shading
+      // calculate shading with advanced model
       T sp[3];
       vec_add(1.f, orig, t, dir, sp);
-      T shading = this->shader(orig, sp, proj_orig, norm);
+
+      // 获取材质参数
+      T roughness = this->shader.default_roughness;
+      T metallic = this->shader.default_metallic;
+      T specular_boost = this->shader.specular_intensity;
+
+      if(this->input.roughness != nullptr) {
+        roughness = this->input.roughness[face_idx];
+      }
+      if(this->input.metallic != nullptr) {
+        metallic = this->input.metallic[face_idx];
+      }
+      if(this->input.specular_boost != nullptr) {
+        specular_boost = this->input.specular_boost[face_idx];
+      }
+
+      // 使用改进的着色模型
+      T shading;
+      if(this->shader.use_pbr) {
+        // PBR着色
+        T base_color = 0.5f;  // 默认基础颜色
+        shading = pbr_shading(orig, sp, proj_orig, norm, roughness, metallic, base_color, specular_boost);
+      } else {
+        // 改进的Phong着色 + 菲涅尔 + 高反
+        shading = phong_with_fresnel(orig, sp, proj_orig, norm,
+                                     this->shader.ka, this->shader.kd, this->shader.ks, this->shader.alpha,
+                                     roughness, specular_boost);
+      }
+
+      // 自适应曝光补偿
+      T specularity = detect_specularity(norm, dir, roughness, metallic);
+      shading = adaptive_exposure(shading, specularity, 0.8f);
 
       if(this->buffer.normal != nullptr) {
           this->buffer.normal[idx * 3 + 0] = shading * vec_dot(reflectance_local, this->camerasensitivity + 0 * this->wavelength, this->wavelength);

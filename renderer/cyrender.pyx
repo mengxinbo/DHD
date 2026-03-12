@@ -34,6 +34,8 @@ cdef extern from "render/render.h":
     int n_verts;
     int* faces;
     int n_faces;
+    T* roughness;
+    T* metallic;
   
     T* tex_coords;
     T* tex;
@@ -54,8 +56,9 @@ cdef extern from "render/render.h":
     const T ka;
     const T kd;
     const T ks;
-    const T alpha; 
-    Shader(T ka, T kd, T ks, T alpha)
+    const T alpha;
+    int use_ggx;
+    Shader(T ka, T kd, T ks, T alpha, int use_ggx)
 
   cdef cppclass BaseRenderer[T]:
     const Camera[T] cam;
@@ -99,8 +102,10 @@ cdef class PyRenderInput:
   cdef colors
   cdef normals
   cdef faces
+  cdef roughness
+  cdef metallic
 
-  def __cinit__(self, float[:,::1] verts=None, int[::1] colors=None, float[:,::1] normals=None, int[:,::1] faces=None):
+  def __cinit__(self, float[:,::1] verts=None, int[::1] colors=None, float[:,::1] normals=None, int[:,::1] faces=None, float[::1] roughness=None, float[::1] metallic=None):
    self.input = RenderInput[float]()
    if verts is not None:
      self.set_verts(verts)
@@ -110,6 +115,10 @@ cdef class PyRenderInput:
      self.set_colors(colors)
    if faces is not None:
      self.set_faces(faces)
+   if roughness is not None:
+     self.set_roughness(roughness)
+   if metallic is not None:
+     self.set_metallic(metallic)
 
   def set_verts(self, float[:,::1] verts):
     if verts.shape[1] != 3:
@@ -139,11 +148,21 @@ cdef class PyRenderInput:
     self.input.faces = &faces_view[0,0]
     self.input.n_faces = self.faces.shape[0]
 
+  def set_roughness(self, float[::1] roughness):
+    self.roughness = roughness
+    cdef float[::1] roughness_view = self.roughness
+    self.input.roughness = &roughness_view[0]
+
+  def set_metallic(self, float[::1] metallic):
+    self.metallic = metallic
+    cdef float[::1] metallic_view = self.metallic
+    self.input.metallic = &metallic_view[0]
+
 cdef class PyShader:
   cdef Shader[float]* shader
 
-  def __cinit__(self, float ka, float kd, float ks, float alpha):
-    self.shader = new Shader[float](ka, kd, ks, alpha)
+  def __cinit__(self, float ka, float kd, float ks, float alpha, int use_ggx=0):
+    self.shader = new Shader[float](ka, kd, ks, alpha, use_ggx)
 
   def __dealloc__(self):
     del self.shader

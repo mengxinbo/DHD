@@ -90,8 +90,10 @@ struct RenderInput {
   int n_verts;
   int* faces;
   int n_faces;
+  T* roughness;   // per-face, length = n_faces
+  T* metallic;    // per-face, length = n_faces
 
-  RenderInput() : verts(nullptr), colors(nullptr), normals(nullptr), n_verts(0), faces(nullptr), n_faces(0) {}
+  RenderInput() : verts(nullptr), colors(nullptr), normals(nullptr), n_verts(0), faces(nullptr), n_faces(0), roughness(nullptr), metallic(nullptr) {}
 };
 
 template <typename T>
@@ -110,11 +112,20 @@ struct Shader {
   const T kd;
   const T ks;
   const T alpha;
+  const int use_ggx;
 
-  Shader(T ka, T kd, T ks, T alpha) : ka(ka), kd(kd), ks(ks), alpha(alpha) {}
+  Shader(T ka, T kd, T ks, T alpha, int use_ggx = 0) : ka(ka), kd(kd), ks(ks), alpha(alpha), use_ggx(use_ggx) {}
 
   CPU_GPU_FUNCTION
   T operator()(const T* orig, const T* sp, const T* lp, const T* norm) const {
+    return reflectance_phong(orig, sp, lp, norm, ka, kd, ks, alpha);
+  }
+
+  CPU_GPU_FUNCTION
+  T operator()(const T* orig, const T* sp, const T* lp, const T* norm, T roughness, T metallic) const {
+    if(use_ggx) {
+      return reflectance_ggx(orig, sp, lp, norm, roughness, metallic);
+    }
     return reflectance_phong(orig, sp, lp, norm, ka, kd, ks, alpha);
   }
 };
@@ -368,11 +379,10 @@ struct RenderProjectorFunctor : public RenderFunctor<T> {
       }
 
       T norm[3];
-      vertex_normal_3d(
-        this->input.verts + face[0] * 3,
-        this->input.verts + face[1] * 3,
-        this->input.verts + face[2] * 3,
-        norm);
+      vec_fill(norm, T(0));
+      vec_add(T(1), norm, tu, this->input.normals + face[0] * 3, norm);
+      vec_add(T(1), norm, tv, this->input.normals + face[1] * 3, norm);
+      vec_add(T(1), norm, tw, this->input.normals + face[2] * 3, norm);
       vec_normalize(norm, norm);
 
       if(vec_dot(norm, dir) > 0) {
@@ -394,7 +404,9 @@ struct RenderProjectorFunctor : public RenderFunctor<T> {
       // calculate shading
       T sp[3];
       vec_add(1.f, orig, t, dir, sp);
-      T shading = this->shader(orig, sp, proj_orig, norm);
+      T face_roughness = (this->input.roughness != nullptr) ? this->input.roughness[face_idx] : T(0.5);
+      T face_metallic = (this->input.metallic != nullptr) ? this->input.metallic[face_idx] : T(0.0);
+      T shading = this->shader(orig, sp, proj_orig, norm, face_roughness, face_metallic);
 
       if(this->buffer.normal != nullptr) {
           this->buffer.normal[idx * 3 + 0] = shading * vec_dot(reflectance_local, this->camerasensitivity + 0 * this->wavelength, this->wavelength);

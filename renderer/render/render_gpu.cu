@@ -63,6 +63,12 @@ RenderInput<T> RendererGpu<T>::input_to_device(const RenderInput<T> input) {
   if(input.faces != nullptr) {
     input_gpu.faces = host_to_device_malloc(input.faces, input.n_faces * 3);
   }
+  if(input.roughness != nullptr) {
+    input_gpu.roughness = host_to_device_malloc(input.roughness, input.n_faces);
+  }
+  if(input.metallic != nullptr) {
+    input_gpu.metallic = host_to_device_malloc(input.metallic, input.n_faces);
+  }
 
   return input_gpu;
 }
@@ -80,6 +86,12 @@ void RendererGpu<T>::input_free_device(const RenderInput<T> input) {
   }
   if(input.faces != nullptr) {
     device_free(input.faces);
+  }
+  if(input.roughness != nullptr) {
+    device_free(input.roughness);
+  }
+  if(input.metallic != nullptr) {
+    device_free(input.metallic);
   }
 }
 

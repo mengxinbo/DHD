@@ -99,16 +99,21 @@ def get_mesh2(rng, rng_clr, ref_len, min_z=0):
 def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
   # set up background board
   verts, faces, normals, colors = [], [], [], []
+  roughness_list, metallic_list = [], []
   v, f, n = co.geometry.xyplane(z=0, interleaved=True)
   v[:,2] += -v[:,2].min() + rng.uniform(0.53,0.58)
   v[:,:2] *= 5e2
   v[:,2] = np.mean(v[:,2]) + (v[:,2] - np.mean(v[:,2])) * 5e2
   # ===== 改为 per-face: 用 f.shape[0] 而不是 v.shape[0] =====
   c = np.full(f.shape[0], rng_clr.randint(0, ref_len))
+  bg_roughness = np.full(f.shape[0], rng.uniform(0.4, 0.9), dtype=np.float32)
+  bg_metallic = np.zeros(f.shape[0], dtype=np.float32)
   verts.append(v)
   faces.append(f)
   normals.append(n)
   colors.append(c)
+  roughness_list.append(bg_roughness)
+  metallic_list.append(bg_metallic)
 
   # randomly sample 4 foreground objects for each scene
   for shape_idx in range(4):
@@ -135,15 +140,31 @@ def get_mesh(rng, rng_clr, ref_len, x, y, min_z=0):
     # ===== 核心修复：per-vertex 转 per-face =====
     if len(c) == v.shape[0]:
       c = c[f[:, 0]]  # 取每个面第0个顶点的材质索引，长度变为 f.shape[0]
+
+    # per-face roughness and metallic
+    is_metal = rng.random() < 0.3
+    if is_metal:
+      base_roughness = rng.uniform(0.05, 0.5)
+      obj_metallic = np.ones(f.shape[0], dtype=np.float32)
+    else:
+      base_roughness = rng.uniform(0.3, 0.95)
+      obj_metallic = np.zeros(f.shape[0], dtype=np.float32)
+    obj_roughness = base_roughness + rng.normal(0, 0.05, size=f.shape[0])
+    obj_roughness = np.clip(obj_roughness, 0.05, 1.0).astype(np.float32)
+
     verts.append(v.astype(np.float32))
     faces.append(f)
     normals.append(n)
     colors.append(c)
+    roughness_list.append(obj_roughness)
+    metallic_list.append(obj_metallic)
 
   verts, faces = co.geometry.stack_mesh(verts, faces)
   normals = np.vstack(normals).astype(np.float32)
   colors = np.hstack(colors).astype(np.int32)
-  return verts, faces, colors, normals
+  roughness = np.hstack(roughness_list).astype(np.float32)
+  metallic = np.hstack(metallic_list).astype(np.float32)
+  return verts, faces, colors, normals, roughness, metallic
 
 
 def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, camerasensitivity, illumination, wavelength, K, shiftcamera, shiftpattern, baseline, blend_im, noise, maxdisp, mindisp, track_length=4):
@@ -157,9 +178,9 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
 
   x_center=(imsize[1]/2-K[0,2]+shiftcamera)/K[0,0]
   y_center=(imsize[0]/2-K[1,2])/K[1,1]
-  verts, faces, colors, normals = get_mesh(rng, rng_clr, reflectance.shape[0],x_center,y_center)
+  verts, faces, colors, normals, roughness, metallic = get_mesh(rng, rng_clr, reflectance.shape[0],x_center,y_center)
   
-  data = renderer.PyRenderInput(verts=verts.copy(), colors=colors.copy(), normals=normals.copy(), faces=faces.copy())
+  data = renderer.PyRenderInput(verts=verts.copy(), colors=colors.copy(), normals=normals.copy(), faces=faces.copy(), roughness=roughness.copy(), metallic=metallic.copy())
   print(f'loading mesh for sample {idx+1}/{n_samples} took {time.time()-tic}[s]')
 
 
@@ -218,7 +239,7 @@ def create_data(out_root, idx, n_samples, imsize, patterns, reflectance, cameras
       fl = K[0,0] / (2**s)
       shiftcameras=shiftcamera/ (2**s)
       shiftpatterns=shiftpattern/ (2**s)
-      shader = renderer.PyShader(0,1.5,0.0,10)
+      shader = renderer.PyShader(0,1.5,0.0,10,use_ggx=1)
       pyrenderer = renderer.PyRenderer(cam, shader, wavelength=wavelength, engine='gpu')
       
        # ==================== 调试日志 开始 ====================

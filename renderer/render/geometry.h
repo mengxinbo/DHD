@@ -337,4 +337,77 @@ T reflectance_phong(const T* orig, const T* sp, const T* lp, const T* n, const T
   return ka + kd * vec_dot(l, n) + ks * std::pow(vec_dot(r, v), alpha);
 }
 
+// GGX/Trowbridge-Reitz normal distribution function
+template <typename T>
+CPU_GPU_FUNCTION
+T D_GGX(const T* N, const T* H, T roughness) {
+  T NdotH = mmax(vec_dot(N, H), T(0));
+  T a = roughness * roughness;
+  T a2 = a * a;
+  T denom = NdotH * NdotH * (a2 - T(1)) + T(1);
+  return a2 / (T(3.14159265358979323846) * denom * denom);
+}
+
+// Schlick Fresnel approximation
+template <typename T>
+CPU_GPU_FUNCTION
+T F_Schlick(T cosTheta, T F0) {
+  T x = T(1) - cosTheta;
+  T x2 = x * x;
+  return F0 + (T(1) - F0) * (x2 * x2 * x);
+}
+
+// Smith-GGX geometry shadowing (single direction)
+template <typename T>
+CPU_GPU_FUNCTION
+T G_SchlickGGX(T NdotX, T roughness) {
+  T r = roughness + T(1);
+  T k = (r * r) / T(8);
+  return NdotX / (NdotX * (T(1) - k) + k);
+}
+
+// Smith geometry shadowing (combined)
+template <typename T>
+CPU_GPU_FUNCTION
+T G_Smith(const T* N, const T* V, const T* L, T roughness) {
+  T NdotV = mmax(vec_dot(N, V), T(0));
+  T NdotL = mmax(vec_dot(N, L), T(0));
+  return G_SchlickGGX(NdotV, roughness) * G_SchlickGGX(NdotL, roughness);
+}
+
+// Full Cook-Torrance GGX BRDF
+template <typename T>
+CPU_GPU_FUNCTION
+T reflectance_ggx(const T* orig, const T* sp, const T* lp, const T* n, T roughness, T metallic) {
+  T l[3];
+  reflectance_light_dir(sp, lp, l);
+
+  T v[3];
+  vec_sub(orig, sp, v);
+  vec_normalize(v, v);
+
+  T h[3];
+  vec_add(T(1), l, T(1), v, h);
+  vec_normalize(h, h);
+
+  T NdotL = mmax(vec_dot(n, l), T(0));
+  T NdotV = mmax(vec_dot(n, v), T(0));
+
+  if(NdotL <= T(0) || NdotV <= T(0)) {
+    return T(0);
+  }
+
+  T F0 = T(0.04) * (T(1) - metallic) + T(0.7) * metallic;
+
+  T D = D_GGX(n, h, mmax(roughness, T(1e-4)));
+  T VdotH = mmax(vec_dot(v, h), T(0));
+  T F = F_Schlick(VdotH, F0);
+  T G = G_Smith(n, v, l, roughness);
+
+  T specular = D * F * G / (T(4) * NdotV * NdotL + T(1e-7));
+  T diffuse = (T(1) - F) * (T(1) - metallic) / T(3.14159265358979323846);
+
+  return (diffuse + specular) * NdotL;
+}
+
 #endif
